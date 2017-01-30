@@ -5,15 +5,12 @@
  */
 package com.swampbits.misere;
 
-//import java.net.Socket;
 import java.util.List;
-//import java.util.logging.Logger;
 import java.util.StringTokenizer;
 
 import com.swampbits.chaudiere.KeyValuePairs;
 import com.swampbits.chaudiere.Logger;
 import com.swampbits.chaudiere.Socket;
-import com.swampbits.chaudiere.StrUtils;
 
 
 /**
@@ -209,10 +206,10 @@ public class HttpRequest extends HttpTransaction {
    
    /**
     * Retrieves the keys for all arguments given with the request
-    * @param vecKeys to be populated with argument keys
+    * @return list of argument keys
     */
-   public void getArgumentKeys(List<String> vecKeys) {
-      m_arguments.getKeys(vecKeys);
+   public List<String> getArgumentKeys() {
+      return m_arguments.getKeys();
    }
 
    /**

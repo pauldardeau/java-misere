@@ -20,6 +20,7 @@ public class HttpException extends Exception {
     * @param reasonPhrase textual reason for exception
     */
    public HttpException(int statusCode, String reasonPhrase) {
+      super(reasonPhrase);
       m_statusCode = statusCode;
    }
    

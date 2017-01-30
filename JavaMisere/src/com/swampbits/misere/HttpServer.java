@@ -7,7 +7,7 @@ package com.swampbits.misere;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import com.swampbits.chaudiere.DefaultThreadingFactory;
@@ -691,8 +691,7 @@ public class HttpServer {
       KeyValuePairs kvpHandlers = new KeyValuePairs();
       if (configDataSource.hasSection(CFG_SECTION_HANDLERS) &&
           configDataSource.readSection(CFG_SECTION_HANDLERS, kvpHandlers)) {
-         ArrayList<String> vecKeys = new ArrayList<>();
-         kvpHandlers.getKeys(vecKeys);
+         List<String> vecKeys = kvpHandlers.getKeys();
 
          for (String path : vecKeys) {
             String moduleSection = kvpHandlers.getValue(path);
@@ -755,8 +754,7 @@ public class HttpServer {
                   */
 
                   // continue loading application specific parameters for the module
-                  ArrayList<String> vecModuleKeys = new ArrayList<>();
-                  kvpModule.getKeys(vecModuleKeys);
+                  List<String> vecModuleKeys = kvpModule.getKeys();
 
                   KeyValuePairs kvpApp = new KeyValuePairs();
 
