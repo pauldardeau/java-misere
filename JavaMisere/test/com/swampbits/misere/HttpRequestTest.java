@@ -5,7 +5,7 @@
  */
 package com.swampbits.misere;
 
-import com.swampbits.chaudiere.Socket;
+import com.swampbits.chaudiere.mock.MockSocket;
 import java.util.List;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -19,8 +19,29 @@ import static org.junit.Assert.*;
  * @author paul
  */
 public class HttpRequestTest {
+   private String method;
+   private String url;
+   private String protocol;
+   private String host;
+   private String userAgent;
+   private String acceptMimeTypes;
+   private String acceptLanguage;
+   private String acceptEncoding;
+   private String request;
+   private MockSocket socket;
+   private HttpRequest instance;
+   private String requestLine;
    
    public HttpRequestTest() {
+      method = "GET";
+      url = "/docs/index.html";
+      protocol = "HTTP/1.1";
+      requestLine = method + " " + url + " " + protocol;
+      host = "www.nowhere123.com";
+      acceptMimeTypes = "image/gif, image/jpeg, */*";
+      acceptLanguage = "en-us";
+      acceptEncoding = "gzip, deflate";
+      userAgent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1";
    }
    
    @BeforeClass
@@ -32,26 +53,80 @@ public class HttpRequestTest {
    }
    
    @Before
-   public void setUp() {
+   public void setUp() throws Exception {
+      request = construct(method, null);
+      socket = new MockSocket("127.0.0.1", 123);
+      socket.setDataToRead(request);
+      socket.open();
+      instance = new HttpRequest(socket);
    }
    
    @After
    public void tearDown() {
+      request = null;
+      socket = null;
+      instance = null;
+   }
+   
+   public String construct(String verb, String body) {
+      StringBuilder req = new StringBuilder();
+      // GET /docs/index.html HTTP/1.1
+      req.append(verb);
+      req.append(" ");
+      req.append(url);
+      req.append(" ");
+      req.append(protocol);
+      req.append("\n");
+      
+      // Host: www.nowhere123.com
+      req.append("Host: ");
+      req.append(host);
+      req.append("\n");
+      
+      // Accept: image/gif, image/jpeg, */*
+      req.append("Accept: ");
+      req.append(acceptMimeTypes);
+      req.append("\n");
+      
+      // Accept-Language: en-us
+      req.append("Accept-Language: ");
+      req.append(acceptLanguage);
+      req.append("\n");
+      
+      // Accept-Encoding: gzip, deflate
+      req.append("Accept-Encoding: ");
+      req.append(acceptEncoding);
+      req.append("\n");
+
+      // User-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1
+      req.append("User-Agent: ");
+      req.append(userAgent);
+      req.append("\n");
+      
+      req.append("Content-Length: ");
+      if ((body != null) && !body.isEmpty()) {
+         req.append(body.length());
+      } else {
+         req.append(0);
+      }
+      req.append("\n");
+      
+      req.append("\n");
+      
+      if ((body != null) && !body.isEmpty()) {
+         req.append(body);
+      }
+      
+      return req.toString();
    }
 
    /**
     * Test of streamFromSocket method, of class HttpRequest.
     */
    @Test
-   public void testStreamFromSocket() throws Exception {
+   public void testStreamFromSocket() {
       System.out.println("streamFromSocket");
-      Socket socket = null;
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.streamFromSocket(socket);
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(method, instance.getMethod());
    }
 
    /**
@@ -60,12 +135,7 @@ public class HttpRequestTest {
    @Test
    public void testIsInitialized() {
       System.out.println("isInitialized");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.isInitialized();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.isInitialized());
    }
 
    /**
@@ -74,12 +144,7 @@ public class HttpRequestTest {
    @Test
    public void testGetRequest() {
       System.out.println("getRequest");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getRequest();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(requestLine, instance.getRequest());
    }
 
    /**
@@ -88,12 +153,7 @@ public class HttpRequestTest {
    @Test
    public void testGetMethod() {
       System.out.println("getMethod");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getMethod();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals("GET", instance.getMethod());
    }
 
    /**
@@ -102,12 +162,7 @@ public class HttpRequestTest {
    @Test
    public void testGetPath() {
       System.out.println("getPath");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getPath();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(url, instance.getPath());
    }
 
    /**
@@ -160,12 +215,7 @@ public class HttpRequestTest {
    @Test
    public void testHasAccept() {
       System.out.println("hasAccept");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasAccept();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.hasAccept());
    }
 
    /**
@@ -174,12 +224,7 @@ public class HttpRequestTest {
    @Test
    public void testHasAcceptEncoding() {
       System.out.println("hasAcceptEncoding");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasAcceptEncoding();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.hasAcceptEncoding());
    }
 
    /**
@@ -188,12 +233,7 @@ public class HttpRequestTest {
    @Test
    public void testHasAcceptLanguage() {
       System.out.println("hasAcceptLanguage");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasAcceptLanguage();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.hasAcceptLanguage());
    }
 
    /**
@@ -202,12 +242,7 @@ public class HttpRequestTest {
    @Test
    public void testHasConnection() {
       System.out.println("hasConnection");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasConnection();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertFalse(instance.hasConnection());
    }
 
    /**
@@ -216,12 +251,7 @@ public class HttpRequestTest {
    @Test
    public void testHasDNT() {
       System.out.println("hasDNT");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasDNT();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertFalse(instance.hasDNT());
    }
 
    /**
@@ -230,12 +260,7 @@ public class HttpRequestTest {
    @Test
    public void testHasHost() {
       System.out.println("hasHost");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasHost();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.hasHost());
    }
 
    /**
@@ -244,12 +269,7 @@ public class HttpRequestTest {
    @Test
    public void testHasUserAgent() {
       System.out.println("hasUserAgent");
-      HttpRequest instance = null;
-      boolean expResult = false;
-      boolean result = instance.hasUserAgent();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.hasUserAgent());
    }
 
    /**
@@ -258,12 +278,7 @@ public class HttpRequestTest {
    @Test
    public void testGetAccept() {
       System.out.println("getAccept");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getAccept();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(this.acceptMimeTypes, instance.getAccept());
    }
 
    /**
@@ -272,12 +287,7 @@ public class HttpRequestTest {
    @Test
    public void testGetAcceptEncoding() {
       System.out.println("getAcceptEncoding");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getAcceptEncoding();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(this.acceptEncoding, instance.getAcceptEncoding());
    }
 
    /**
@@ -286,12 +296,7 @@ public class HttpRequestTest {
    @Test
    public void testGetAcceptLanguage() {
       System.out.println("getAcceptLanguage");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getAcceptLanguage();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(this.acceptLanguage, instance.getAcceptLanguage());
    }
 
    /**
@@ -300,12 +305,7 @@ public class HttpRequestTest {
    @Test
    public void testGetConnection() {
       System.out.println("getConnection");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getConnection();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertNull(instance.getConnection());
    }
 
    /**
@@ -314,12 +314,7 @@ public class HttpRequestTest {
    @Test
    public void testGetDNT() {
       System.out.println("getDNT");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getDNT();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertNull(instance.getDNT());
    }
 
    /**
@@ -328,12 +323,7 @@ public class HttpRequestTest {
    @Test
    public void testGetHost() {
       System.out.println("getHost");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getHost();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(host, instance.getHost());
    }
 
    /**
@@ -342,12 +332,7 @@ public class HttpRequestTest {
    @Test
    public void testGetUserAgent() {
       System.out.println("getUserAgent");
-      HttpRequest instance = null;
-      String expResult = "";
-      String result = instance.getUserAgent();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(userAgent, instance.getUserAgent());
    }
 
    /**
@@ -356,10 +341,7 @@ public class HttpRequestTest {
    @Test
    public void testParseBody() {
       System.out.println("parseBody");
-      HttpRequest instance = null;
       instance.parseBody();
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
    }
    
 }

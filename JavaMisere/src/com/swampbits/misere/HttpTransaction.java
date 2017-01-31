@@ -24,13 +24,13 @@ public class HttpTransaction {
    public static final String COLON  = ":";
    public static final String EOL_NL = "\n";
 
-   private ArrayList<String> m_vecHeaderLines;
-   private ArrayList<String> m_vecRequestLineValues;
+   private ArrayList<String> m_vecHeaderLines = new ArrayList<>();
+   private ArrayList<String> m_vecRequestLineValues = new ArrayList<>();
    private String m_header;
    private String m_body;
    private String m_protocol;
    private String m_requestLine;
-   private HashMap<String,String> m_hashHeaders;
+   private HashMap<String,String> m_hashHeaders = new HashMap<>();
    private String m_method;
    private int m_contentLength = 0;
 
@@ -300,6 +300,7 @@ public class HttpTransaction {
          m_vecRequestLineValues.add(thirdValue);
          int numHeaderLines = m_vecHeaderLines.size();
          m_method = m_vecRequestLineValues.get(0);
+         m_protocol = m_vecRequestLineValues.get(2);
       
          for (int i = 1; i < numHeaderLines; ++i) {
             String headerLine = m_vecHeaderLines.get(i);

@@ -6,6 +6,9 @@
 package com.swampbits.misere;
 
 import com.swampbits.chaudiere.Socket;
+import com.swampbits.chaudiere.mock.MockSocket;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.After;
@@ -21,7 +24,29 @@ import static org.junit.Assert.*;
  */
 public class HttpTransactionTest {
    
+   private String method;
+   private String url;
+   private String protocol;
+   private String host;
+   private String userAgent;
+   private String acceptMimeTypes;
+   private String acceptLanguage;
+   private String acceptEncoding;
+   private String request;
+   private MockSocket socket;
+   private HttpTransaction instance;
+   private String requestLine;
+
    public HttpTransactionTest() {
+      method = "GET";
+      url = "/docs/index.html";
+      protocol = "HTTP/1.1";
+      requestLine = method + " " + url + " " + protocol;
+      host = "www.nowhere123.com";
+      acceptMimeTypes = "image/gif, image/jpeg, */*";
+      acceptLanguage = "en-us";
+      acceptEncoding = "gzip, deflate";
+      userAgent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1";
    }
    
    @BeforeClass
@@ -33,11 +58,71 @@ public class HttpTransactionTest {
    }
    
    @Before
-   public void setUp() {
+   public void setUp() throws Exception {
+      request = construct(method, null);
+      socket = new MockSocket("127.0.0.1", 123);
+      socket.setDataToRead(request);
+      socket.open();
+      instance = new HttpTransaction();
    }
    
    @After
    public void tearDown() {
+      request = null;
+      socket = null;
+      instance = null;
+   }
+
+   public String construct(String verb, String body) {
+      StringBuilder req = new StringBuilder();
+      // GET /docs/index.html HTTP/1.1
+      req.append(verb);
+      req.append(" ");
+      req.append(url);
+      req.append(" ");
+      req.append(protocol);
+      req.append("\n");
+      
+      // Host: www.nowhere123.com
+      req.append("Host: ");
+      req.append(host);
+      req.append("\n");
+      
+      // Accept: image/gif, image/jpeg, */*
+      req.append("Accept: ");
+      req.append(acceptMimeTypes);
+      req.append("\n");
+      
+      // Accept-Language: en-us
+      req.append("Accept-Language: ");
+      req.append(acceptLanguage);
+      req.append("\n");
+      
+      // Accept-Encoding: gzip, deflate
+      req.append("Accept-Encoding: ");
+      req.append(acceptEncoding);
+      req.append("\n");
+
+      // User-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1
+      req.append("User-Agent: ");
+      req.append(userAgent);
+      req.append("\n");
+      
+      req.append("Content-Length: ");
+      if ((body != null) && !body.isEmpty()) {
+         req.append(body.length());
+      } else {
+         req.append(0);
+      }
+      req.append("\n");
+      
+      req.append("\n");
+      
+      if ((body != null) && !body.isEmpty()) {
+         req.append(body);
+      }
+      
+      return req.toString();
    }
 
    /**
@@ -46,41 +131,30 @@ public class HttpTransactionTest {
    @Test
    public void testStreamFromSocket() throws Exception {
       System.out.println("streamFromSocket");
-      Socket socket = null;
-      HttpTransaction instance = new HttpTransaction();
-      boolean expResult = false;
-      boolean result = instance.streamFromSocket(socket);
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertTrue(instance.streamFromSocket(socket));
    }
 
    /**
     * Test of getRawHeader method, of class HttpTransaction.
     */
    @Test
-   public void testGetRawHeader() {
+   public void testGetRawHeader() throws Exception {
       System.out.println("getRawHeader");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getRawHeader();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      String rawHeader = instance.getRawHeader();
+      assertNotNull(rawHeader);
+      assertFalse(rawHeader.isEmpty());
+      assertTrue(rawHeader.contains(userAgent));
    }
 
    /**
     * Test of getBody method, of class HttpTransaction.
     */
    @Test
-   public void testGetBody() {
+   public void testGetBody() throws Exception {
       System.out.println("getBody");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getBody();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertNull(instance.getBody());
    }
 
    /**
@@ -89,54 +163,45 @@ public class HttpTransactionTest {
    @Test
    public void testSetBody() {
       System.out.println("setBody");
-      String body = "";
-      HttpTransaction instance = new HttpTransaction();
+      String body = "Hello world";
       instance.setBody(body);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertEquals(body, instance.getBody());
    }
 
    /**
     * Test of hasHeaderValue method, of class HttpTransaction.
     */
    @Test
-   public void testHasHeaderValue() {
+   public void testHasHeaderValue() throws Exception {
       System.out.println("hasHeaderValue");
-      String headerKey = "";
-      HttpTransaction instance = new HttpTransaction();
-      boolean expResult = false;
-      boolean result = instance.hasHeaderValue(headerKey);
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertTrue(instance.hasHeaderValue(HTTP.HTTP_ACCEPT_LANGUAGE));
+      assertFalse(instance.hasHeaderValue("sdfkj"));
    }
 
    /**
     * Test of getHeaderValue method, of class HttpTransaction.
     */
    @Test
-   public void testGetHeaderValue() {
+   public void testGetHeaderValue() throws Exception {
       System.out.println("getHeaderValue");
-      String headerKey = "";
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getHeaderValue(headerKey);
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertEquals(acceptLanguage, instance.getHeaderValue(HTTP.HTTP_ACCEPT_LANGUAGE));
+      assertNull(instance.getHeaderValue("sdfkj"));
    }
 
    /**
     * Test of getHeaderKeys method, of class HttpTransaction.
     */
    @Test
-   public void testGetHeaderKeys() {
+   public void testGetHeaderKeys() throws Exception {
       System.out.println("getHeaderKeys");
-      List<String> headerKeys = null;
-      HttpTransaction instance = new HttpTransaction();
+      instance.streamFromSocket(socket);
+      List<String> headerKeys = new ArrayList<>();
       instance.getHeaderKeys(headerKeys);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertFalse(headerKeys.isEmpty());
+      assertTrue(headerKeys.contains(HTTP.HTTP_ACCEPT_LANGUAGE.toLowerCase()));
+      assertTrue(headerKeys.contains(HTTP.HTTP_USER_AGENT.toLowerCase()));
    }
 
    /**
@@ -145,95 +210,80 @@ public class HttpTransactionTest {
    @Test
    public void testSetHeaderValue() {
       System.out.println("setHeaderValue");
-      String key = "";
-      String value = "";
-      HttpTransaction instance = new HttpTransaction();
-      instance.setHeaderValue(key, value);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      String myUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2)";
+      instance.setHeaderValue(HTTP.HTTP_USER_AGENT, myUserAgent);
+      assertTrue(instance.hasHeaderValue(HTTP.HTTP_USER_AGENT));
+      assertEquals(myUserAgent, instance.getHeaderValue(HTTP.HTTP_USER_AGENT));
    }
 
    /**
     * Test of getProtocol method, of class HttpTransaction.
     */
    @Test
-   public void testGetProtocol() {
+   public void testGetProtocol() throws Exception {
       System.out.println("getProtocol");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getProtocol();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertEquals(protocol, instance.getProtocol());
    }
 
    /**
     * Test of getRequestMethod method, of class HttpTransaction.
     */
    @Test
-   public void testGetRequestMethod() {
+   public void testGetRequestMethod() throws Exception {
       System.out.println("getRequestMethod");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getRequestMethod();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertEquals(method, instance.getRequestMethod());
    }
 
    /**
     * Test of getRequestPath method, of class HttpTransaction.
     */
    @Test
-   public void testGetRequestPath() {
+   public void testGetRequestPath() throws Exception {
       System.out.println("getRequestPath");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getRequestPath();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertEquals(url, instance.getRequestPath());
    }
 
    /**
     * Test of getRequestLine method, of class HttpTransaction.
     */
    @Test
-   public void testGetRequestLine() {
+   public void testGetRequestLine() throws Exception {
       System.out.println("getRequestLine");
-      HttpTransaction instance = new HttpTransaction();
-      String expResult = "";
-      String result = instance.getRequestLine();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      assertEquals(requestLine, instance.getRequestLine());
    }
 
    /**
     * Test of populateWithHeaders method, of class HttpTransaction.
     */
    @Test
-   public void testPopulateWithHeaders() {
+   public void testPopulateWithHeaders() throws Exception {
       System.out.println("populateWithHeaders");
-      Map<String, String> hashTable = null;
-      HttpTransaction instance = new HttpTransaction();
-      instance.populateWithHeaders(hashTable);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      HashMap<String, String> hashHeaders = new HashMap<>();
+      instance.streamFromSocket(socket);
+      instance.populateWithHeaders(hashHeaders);
+      assertFalse(hashHeaders.isEmpty());
+      String lowerUserAgent = HTTP.HTTP_USER_AGENT.toLowerCase();
+      assertTrue(hashHeaders.containsKey(lowerUserAgent));
+      assertEquals(userAgent, hashHeaders.get(lowerUserAgent));
    }
 
    /**
     * Test of getRequestLineValues method, of class HttpTransaction.
     */
    @Test
-   public void testGetRequestLineValues() {
+   public void testGetRequestLineValues() throws Exception {
       System.out.println("getRequestLineValues");
-      HttpTransaction instance = new HttpTransaction();
-      List<String> expResult = null;
-      List<String> result = instance.getRequestLineValues();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
+      List<String> reqLineValues = instance.getRequestLineValues();
+      assertNotNull(reqLineValues);
+      assertEquals(3, reqLineValues.size());
+      assertEquals(method, reqLineValues.get(0));
+      assertEquals(url, reqLineValues.get(1));
+      assertEquals(protocol, reqLineValues.get(2));
    }
 
    /**
@@ -242,25 +292,23 @@ public class HttpTransactionTest {
    @Test
    public void testSetProtocol() {
       System.out.println("setProtocol");
-      String protocol = "";
-      HttpTransaction instance = new HttpTransaction();
+      protocol = HTTP.HTTP_PROTOCOL1_0;
       instance.setProtocol(protocol);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      assertNotNull(instance.getProtocol());
+      assertEquals(protocol, instance.getProtocol());
+      protocol = HTTP.HTTP_PROTOCOL1_1;
+      instance.setProtocol(protocol);
+      assertNotNull(instance.getProtocol());
+      assertEquals(protocol, instance.getProtocol());
    }
 
    /**
     * Test of parseHeaders method, of class HttpTransaction.
     */
    @Test
-   public void testParseHeaders() {
+   public void testParseHeaders() throws Exception {
       System.out.println("parseHeaders");
-      HttpTransaction instance = new HttpTransaction();
-      boolean expResult = false;
-      boolean result = instance.parseHeaders();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
+      instance.streamFromSocket(socket);
    }
    
 }

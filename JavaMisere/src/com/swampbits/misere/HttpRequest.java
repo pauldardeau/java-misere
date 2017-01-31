@@ -330,7 +330,7 @@ public class HttpRequest extends HttpTransaction {
    protected void parseBody() {
       String body = getBody();
    
-      if (!body.isEmpty() && body.contains(AMPERSAND)) {
+      if ((null != body) && !body.isEmpty() && body.contains(AMPERSAND)) {
          StringTokenizer st1 = new StringTokenizer(body, AMPERSAND);
 
          while (st1.hasMoreTokens()) {
