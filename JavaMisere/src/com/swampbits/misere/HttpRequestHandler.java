@@ -122,12 +122,14 @@ public class HttpRequestHandler extends RequestHandler implements Runnable {
             }
          }
 
+         /*
          Logger.countOccurrence(COUNT_PATH, routingPath);
       
          if (request.hasHeaderValue(HTTP_USER_AGENT)) {
             Logger.countOccurrence(COUNT_USER_AGENT,
                                     request.getHeaderValue(HTTP_USER_AGENT));
          }
+         */
    
          HttpHandler handler = m_server.getPathHandler(routingPath);
          boolean handlerAvailable = false;
