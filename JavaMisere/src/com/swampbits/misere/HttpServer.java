@@ -6,9 +6,25 @@
 package com.swampbits.misere;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketAddress;
+
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import com.swampbits.chaudiere.DefaultThreadingFactory;
 import com.swampbits.chaudiere.IniReader;
@@ -16,10 +32,10 @@ import com.swampbits.chaudiere.KeyValuePairs;
 import com.swampbits.chaudiere.Logger;
 import com.swampbits.chaudiere.SectionedConfigDataSource;
 import com.swampbits.chaudiere.SocketRequest;
+import com.swampbits.chaudiere.StdLogger;
 import com.swampbits.chaudiere.SystemInfo;
 import com.swampbits.chaudiere.ThreadPoolDispatcher;
 import com.swampbits.chaudiere.ThreadingFactory;
-
 import com.swampbits.misere.handler.*;
 
 /**
@@ -28,6 +44,8 @@ import com.swampbits.misere.handler.*;
  */
 public class HttpServer {
    
+   public static final String ENV_VAR_CFG_PATH        = "MISERE_HOME";
+   public static final String CFG_FILE_NAME           = "misere.ini";
    public static final String SERVER_NAME             = "Misere";
    public static final String SERVER_VERSION          = "0.1";
    public static final String CFG_TRUE_SETTING_VALUES = "yes|true|1";
@@ -68,9 +86,7 @@ public class HttpServer {
    public static final String CFG_SOCKETS_KERNEL_EVENTS          = "kernel_events";
 
    // threading options
-   public static final String CFG_THREADING_PTHREADS             = "pthreads";
-   public static final String CFG_THREADING_CPP11                = "c++11";
-   public static final String CFG_THREADING_GCD_LIBDISPATCH      = "gcd_libdispatch";
+   public static final String CFG_THREADING_THREADS              = "threads";
    public static final String CFG_THREADING_NONE                 = "none";
 
    // logging level options
@@ -128,6 +144,10 @@ public class HttpServer {
    private int m_socketSendBufferSize;
    private int m_socketReceiveBufferSize;
    private final int m_minimumCompressionSize;
+   private boolean m_isLoggingDebug;
+   private HashMap<SocketChannel,List> m_dataMapper;
+   private Selector m_selector;
+   //private String m_bindInterface;
    
    /**
     * Constructs an HttpServer with the file name/path for a configuration file
@@ -147,7 +167,12 @@ public class HttpServer {
       m_compressionEnabled = false;
       m_threadPoolSize = CFG_DEFAULT_THREAD_POOL_SIZE;
       m_serverPort = CFG_DEFAULT_PORT_NUMBER;
+      m_socketSendBufferSize = CFG_DEFAULT_SEND_BUFFER_SIZE;
+      m_socketReceiveBufferSize = CFG_DEFAULT_RECEIVE_BUFFER_SIZE;
       m_minimumCompressionSize = 1000;
+      m_isLoggingDebug = false;
+      m_dataMapper = new HashMap<>();
+      m_mapPathHandlers = new HashMap<>();
       //Logger.logInstanceCreate("HttpServer");
    }
    
@@ -156,8 +181,10 @@ public class HttpServer {
        * @return current time in GMT
        */
    public String getSystemDateGMT() {
-      //TODO:
-      return null;
+      //TODO: move dfGMT to instance variable
+      SimpleDateFormat dfGMT = new SimpleDateFormat("yyyy-MMM-dd HH:mm:ss");
+      dfGMT.setTimeZone(TimeZone.getTimeZone("GMT"));
+      return dfGMT.format(new Date());
    }
    
    /**
@@ -165,8 +192,9 @@ public class HttpServer {
     * @return current time as local server time
     */
    public String getLocalDateTime() {
-      //TODO:
-      return null;
+      //TODO: move dfLocal to instance variable
+      SimpleDateFormat dfLocal = new SimpleDateFormat("yyyy-MMM-dd HH:mm:ss");
+      return dfLocal.format(new Date());
    }
 
    /**
@@ -214,8 +242,14 @@ public class HttpServer {
     * @return boolean indicating if the handler was successfully registered
     */
    public boolean addPathHandler(String path, HttpHandler handler) {
-      //TODO:
-      return false;
+      boolean isSuccess = false;
+      
+      if (!path.isEmpty() && (null != handler)) {
+         m_mapPathHandlers.put(path, handler);
+         isSuccess = true;
+      }
+
+      return isSuccess;
    }
    
    /**
@@ -224,8 +258,13 @@ public class HttpServer {
     * @return boolean indicating if a path was deregistered for the path
     */
    public boolean removePathHandler(String path) {
-      //TODO:
-      return false;
+      boolean success = false;
+      if (m_mapPathHandlers.containsKey(path)) {
+         m_mapPathHandlers.remove(path);
+         success = true;
+      }
+
+      return success;
    }
    
    /**
@@ -234,8 +273,11 @@ public class HttpServer {
     * @return the handler associated with the path, or null if there is none
     */
    public HttpHandler getPathHandler(String path) {
-      //TODO:
-      return null;
+      if (m_mapPathHandlers.containsKey(path)) {
+         return m_mapPathHandlers.get(path);
+      } else {
+         return null;
+      }
    }
 
    /**
@@ -294,12 +336,97 @@ public class HttpServer {
    }
    
    /**
-    * Runs a kernel event server (e.g., kqueue or epoll)
+    * Runs a kernel event server using nio (e.g., kqueue or epoll)
     * @return exit code for the HTTP server process
     */
    public int runKernelEventServer() {
-      //TODO:
-      return 1;
+      int rc = 0;
+      try {
+         m_selector = Selector.open();
+         ServerSocketChannel serverChannel = ServerSocketChannel.open();
+         serverChannel.configureBlocking(false);
+         serverChannel.bind(new InetSocketAddress(m_serverPort));
+         serverChannel.register(m_selector, SelectionKey.OP_ACCEPT);
+      
+         while (true) {
+            // wait for events
+            m_selector.select();
+         
+            // work on selected keys
+            Iterator keys = m_selector.selectedKeys().iterator();
+            while (keys.hasNext()) {
+               SelectionKey key = (SelectionKey) keys.next();
+               keys.remove();
+            
+               if (!key.isValid()) {
+                  continue;
+               }
+            
+               if (key.isAcceptable()) {
+                  this.accept(key);
+               } else if (key.isReadable()) {
+                  this.read(key);
+               }
+            }
+         }
+      } catch (IOException ioe) {
+         rc = 1;
+      } catch (Throwable t) {
+         rc = 1;
+      }
+      
+      return rc;
+   }
+   
+   /**
+    * 
+    * @param key
+    * @throws IOException 
+    */
+   private void accept(SelectionKey key) throws IOException {
+      ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
+      SocketChannel channel = serverChannel.accept();
+      channel.configureBlocking(false);
+
+      Socket socket = channel.socket();
+      SocketAddress remoteAddr = socket.getRemoteSocketAddress();
+      System.out.println("connected to: " + remoteAddr);
+      
+      // register channel with selector for further IO
+      m_dataMapper.put(channel, new ArrayList());
+      channel.register(m_selector, SelectionKey.OP_READ);
+   }
+   
+   /**
+    * 
+    * @param key
+    * @throws IOException 
+    */
+   private void read(SelectionKey key) throws IOException {
+      SocketChannel channel = (SocketChannel) key.channel();
+      try {
+         Socket socket = channel.socket();
+         HttpRequestHandler handler =
+                  new HttpRequestHandler(this,
+                          new com.swampbits.chaudiere.Socket(socket));
+
+            if (m_isThreaded && (null != m_threadPool)) {
+               handler.setThreadPooling(true);
+               // give it to the thread pool
+               m_threadPool.addRequest(handler);
+            } else {
+               handler.run();
+            }
+      } finally {
+         try {
+	         if (channel != null) {
+               channel.close();
+            }
+	      } catch (IOException e) {
+            e.printStackTrace();
+         }
+         key.cancel();
+      }
    }
    
    /**
@@ -332,7 +459,7 @@ public class HttpServer {
    public void logRequest(String clientIPAddress,
                           String requestLine,
                           String responseCode) {
-      //TODO:
+      logRequest(clientIPAddress, requestLine, responseCode, "");
    }
 
    /**
@@ -346,7 +473,20 @@ public class HttpServer {
                           String requestLine,
                           String responseCode,
                           String threadWorkerId) {
-      //TODO:
+      String localDateTime = getLocalDateTime();
+      
+      if (!threadWorkerId.isEmpty()) {
+         System.out.println("[" + localDateTime + "] [thread=" +
+                            threadWorkerId + "] " +
+                            clientIPAddress + ", " +
+                            requestLine + ", " +
+                            responseCode);
+      } else {
+         System.out.println("[" + localDateTime + "] " +
+                            clientIPAddress + ", " +
+                            requestLine + ", " +
+                            responseCode);
+      }
    }
    
    /**
@@ -383,15 +523,6 @@ public class HttpServer {
       return m_serverString;
    }
    
-   /**
-    * Retrieves the size in bytes of a generic (void*) pointer
-    * @return platform pointer size
-    */
-   public int platformPointerSizeBits() {
-      //TODO:
-      return 0;
-   }
-
    /**
     * Service a request for a socket when using a kernel event server
     * @param socketRequest the SocketRequest to process
@@ -444,7 +575,13 @@ public class HttpServer {
     * @param s the string to search and replace all variables in
     */
    public void replaceVariables(KeyValuePairs kvp, String s) {
-      
+      if (!s.isEmpty()) {
+         for (String key : kvp.getKeys()) {
+            if (s.contains(key)) {
+               s.replaceAll(key, kvp.getValue(key));
+            }
+         }
+      }
    }
    
    /**
@@ -476,227 +613,201 @@ public class HttpServer {
    }
 
    /**
-    * Initializes the HTTP server on the specified port by default by reading and
-    * applying configuration values read from configuration data source
-    * @param port the default port (may be overridden by configuration values)
-    * @return boolean indicating whether initialization was successful
+    * 
+    * @param dataSource
     */
-   protected boolean init(int port) {
-      boolean isLoggingDebug = Logger.isLogging(Logger.LogLevel.Debug);
-      m_serverPort = port;
-	
-      SectionedConfigDataSource configDataSource = null;
-      boolean haveDataSource = false;
-   
-      try {
-         configDataSource = getConfigDataSource();
-         haveDataSource = true;
-      } catch (Exception e) {
-         Logger.error("exception retrieving config data: " + e.getMessage());
-      } catch (Throwable t) {
-         Logger.error("exception retrieving config data");
-      }
-   
-      if ((null == configDataSource) || !haveDataSource) {
-         Logger.error("unable to retrieve config data");
-         return false;
-      }
+   protected void setupLogFiles(SectionedConfigDataSource dataSource) {
+      KeyValuePairs kvpLogFiles = new KeyValuePairs();
+      if (dataSource.hasSection(CFG_SECTION_LOGGING) &&
+          dataSource.readSection(CFG_SECTION_LOGGING, kvpLogFiles)) {
+         if (kvpLogFiles.hasKey(CFG_LOGFILE_ACCESS)) {
+            String accessLog = kvpLogFiles.getValue(CFG_LOGFILE_ACCESS);
+            m_accessLogFile = accessLog;
+            Logger.info("access log=" + accessLog);
+         }
 
-      // start out with our default settings
-      m_socketSendBufferSize = CFG_DEFAULT_SEND_BUFFER_SIZE;
-      m_socketReceiveBufferSize = CFG_DEFAULT_RECEIVE_BUFFER_SIZE;
-
-      try {
-         KeyValuePairs kvpServerSettings = new KeyValuePairs();
-         KeyValuePairs kvpLoggingSettings = new KeyValuePairs();
-         KeyValuePairs kvpHandlerSettings = new KeyValuePairs();
-
-         // read and process "logging" section
-         if (configDataSource.hasSection(CFG_SECTION_LOGGING) &&
-             configDataSource.readSection(CFG_SECTION_LOGGING,
-                                        kvpLoggingSettings)) {
-            if (kvpLoggingSettings.hasKey(CFG_LOGFILE_ACCESS)) {
-               String accessLog =
-                  kvpLoggingSettings.getValue(CFG_LOGFILE_ACCESS);
-               m_accessLogFile = accessLog;
-               Logger.info("access log=" + accessLog);
-            }
-
-         if (kvpLoggingSettings.hasKey(CFG_LOGFILE_ERROR)) {
-            String errorLog =
-               kvpLoggingSettings.getValue(CFG_LOGFILE_ERROR);
-				m_errorLogFile = errorLog;
+         if (kvpLogFiles.hasKey(CFG_LOGFILE_ERROR)) {
+            String errorLog = kvpLogFiles.getValue(CFG_LOGFILE_ERROR);
+            m_errorLogFile = errorLog;
             Logger.info("error log=" + errorLog);
          }
       }
-
-      // read and process "server" section
-      if (configDataSource.hasSection(CFG_SECTION_SERVER) &&
-          configDataSource.readSection(CFG_SECTION_SERVER,
-                                        kvpServerSettings)) {
-         
-         if (kvpServerSettings.hasKey(CFG_SERVER_PORT)) {
-            int portNumber =
-               getIntValue(kvpServerSettings, CFG_SERVER_PORT);
-
-            if (portNumber > 0) {
-               port = portNumber;
-               m_serverPort = portNumber;
-               
-               if (isLoggingDebug) {
-                  Logger.debug("port number=" + port);
-               }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupListeningPort(KeyValuePairs kvp) {
+      if (kvp.hasKey(CFG_SERVER_PORT)) {
+         int portNumber = getIntValue(kvp, CFG_SERVER_PORT);
+         if (portNumber > 0) {
+            m_serverPort = portNumber;
+            if (Logger.isLogging(Logger.LogLevel.Debug)) {
+               Logger.debug("port number=" + m_serverPort);
             }
          }
+      }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupThreading(KeyValuePairs kvp) {
+      m_isThreaded = true;
+      m_threading = CFG_THREADING_THREADS;
+      m_threadPoolSize = 4;
 
-         // defaults
-         m_isThreaded = true;
-         m_threading = CFG_THREADING_PTHREADS;
-         m_threadPoolSize = 4;
-         
-         if (kvpServerSettings.hasKey(CFG_SERVER_THREADING)) {
-            String threading =
-               kvpServerSettings.getValue(CFG_SERVER_THREADING);
-            if (!threading.isEmpty()) {
-               if ((threading.equals(CFG_THREADING_PTHREADS)) ||
-                   (threading.equals(CFG_THREADING_CPP11)) ||
-                   (threading.equals(CFG_THREADING_GCD_LIBDISPATCH))) {
-                  m_threading = threading;
-                  m_isThreaded = true;
-               } else if (threading.equals(CFG_THREADING_NONE)) {
-                  m_isThreaded = false;
-               }
-            }
-         }
-         
-         if (kvpServerSettings.hasKey(CFG_SERVER_THREAD_POOL_SIZE)) {
-            int poolSize =
-               getIntValue(kvpServerSettings, CFG_SERVER_THREAD_POOL_SIZE);
-
-            if (poolSize > 0) {
-               m_threadPoolSize = poolSize;
-            }
-         }
-         
-         // defaults
-         m_sockets = CFG_SOCKETS_SOCKET_SERVER;
-         
-         if (kvpServerSettings.hasKey(CFG_SERVER_SOCKETS)) {
-            String sockets =
-               kvpServerSettings.getValue(CFG_SERVER_SOCKETS);
-            if (sockets.equals(CFG_SOCKETS_KERNEL_EVENTS)) {
-               m_isUsingKernelEventServer = true;
-               m_sockets = CFG_SOCKETS_KERNEL_EVENTS;
-            }
-         }
-
-         if (kvpServerSettings.hasKey(CFG_SERVER_LOG_LEVEL)) {
-            m_logLevel =
-               kvpServerSettings.getValue(CFG_SERVER_LOG_LEVEL);
-            if (!m_logLevel.isEmpty()) {
-               m_logLevel = m_logLevel.toLowerCase();
-               Logger.info("log level: " + m_logLevel);
-               Logger logger = Logger.getLogger();
-               
-               if (logger != null) {
-                  if (m_logLevel.equals(CFG_LOGGING_CRITICAL)) {
-                     logger.setLogLevel(Logger.LogLevel.Critical);
-                  } else if (m_logLevel.equals(CFG_LOGGING_ERROR)) {
-                     logger.setLogLevel(Logger.LogLevel.Error);
-                  } else if (m_logLevel.equals(CFG_LOGGING_WARNING)) {
-                     logger.setLogLevel(Logger.LogLevel.Warning);
-                  } else if (m_logLevel.equals(CFG_LOGGING_INFO)) {
-                     logger.setLogLevel(Logger.LogLevel.Info);
-                  } else if (m_logLevel.equals(CFG_LOGGING_DEBUG)) {
-                     logger.setLogLevel(Logger.LogLevel.Debug);
-                  } else if (m_logLevel.equals(CFG_LOGGING_VERBOSE)) {
-                     logger.setLogLevel(Logger.LogLevel.Verbose);
-                  } else {
-                     Logger.warning("unrecognized log level: '" + m_logLevel);
-                  }
-               }
-            }
-         }
-
-         if (kvpServerSettings.hasKey(CFG_SERVER_SEND_BUFFER_SIZE)) {
-            int buffSize =
-               getIntValue(kvpServerSettings, CFG_SERVER_SEND_BUFFER_SIZE);
-
-            if (buffSize > 0) {
-               m_socketSendBufferSize = buffSize;
-            }
-         }
-
-         if (kvpServerSettings.hasKey(CFG_SERVER_RECEIVE_BUFFER_SIZE)) {
-            int buffSize =
-               getIntValue(kvpServerSettings, CFG_SERVER_RECEIVE_BUFFER_SIZE);
-
-            if (buffSize > 0) {
-               m_socketReceiveBufferSize = buffSize;
-            }
-         }
-         
-         m_allowBuiltInHandlers = hasTrueValue(kvpServerSettings,
-                                               CFG_SERVER_ALLOW_BUILTIN_HANDLERS);
-         
-         if (kvpServerSettings.hasKey(CFG_SERVER_STRING)) {
-            String serverString =
-               kvpServerSettings.getValue(CFG_SERVER_STRING);
-            if (!serverString.isEmpty()) {
-               m_serverString = serverString;
-
-               int posDollar = serverString.indexOf("$");
-               if (posDollar > -1) {
-                  KeyValuePairs kvpVars = new KeyValuePairs();
-                  kvpVars.addPair("$PRODUCT_NAME", SERVER_NAME);
-                  kvpVars.addPair("$PRODUCT_VERSION", SERVER_VERSION);
-                  kvpVars.addPair("$CFG_SOCKETS", m_sockets);
-                  kvpVars.addPair("$CFG_THREADING", m_threading);
-                  
-                  int posDollarOS = serverString.indexOf("$OS_");
-                  
-                  if (posDollarOS > -1) {
-                     SystemInfo systemInfo = new SystemInfo();
-                     if (systemInfo.retrievedSystemInfo()) {
-                        kvpVars.addPair("$OS_SYSNAME", systemInfo.sysName());
-                        kvpVars.addPair("$OS_NODENAME", systemInfo.nodeName());
-                        kvpVars.addPair("$OS_RELEASE", systemInfo.release());
-                        kvpVars.addPair("$OS_VERSION", systemInfo.version());
-                        kvpVars.addPair("$OS_MACHINE", systemInfo.machine());
-                     } else {
-                        Logger.warning("unable to retrieve system information to populate server string");
-                     }
-                  }
-                  
-                  replaceVariables(kvpVars, m_serverString);
-               }
-               
-               Logger.info("setting server string: '" + m_serverString + "'");
+      if (kvp.hasKey(CFG_SERVER_THREADING)) {
+         String threading = kvp.getValue(CFG_SERVER_THREADING);
+         if (!threading.isEmpty()) {
+            if (threading.equals(CFG_THREADING_THREADS)) {
+               m_threading = threading;
+               m_isThreaded = true;
+            } else if (threading.equals(CFG_THREADING_NONE)) {
+               m_isThreaded = false;
             }
          }
       }
 
-      m_startupTime = getLocalDateTime();
+      if (kvp.hasKey(CFG_SERVER_THREAD_POOL_SIZE)) {
+         int poolSize = getIntValue(kvp, CFG_SERVER_THREAD_POOL_SIZE);
+         if (poolSize > 0) {
+            m_threadPoolSize = poolSize;
+         }
+      }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupSocketHandling(KeyValuePairs kvp) {
+      m_sockets = CFG_SOCKETS_SOCKET_SERVER;
+      if (kvp.hasKey(CFG_SERVER_SOCKETS)) {
+         String sockets = kvp.getValue(CFG_SERVER_SOCKETS);
+         if (sockets.equals(CFG_SOCKETS_KERNEL_EVENTS)) {
+            m_isUsingKernelEventServer = true;
+            m_sockets = CFG_SOCKETS_KERNEL_EVENTS;
+         }
+      }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupLogLevel(KeyValuePairs kvp) {
+      if (kvp.hasKey(CFG_SERVER_LOG_LEVEL)) {
+         m_logLevel = kvp.getValue(CFG_SERVER_LOG_LEVEL);
+         if (!m_logLevel.isEmpty()) {
+            m_logLevel = m_logLevel.toLowerCase();
+            Logger.info("log level: " + m_logLevel);
+            Logger logger = Logger.getLogger();
+            if (logger != null) {
+               if (m_logLevel.equals(CFG_LOGGING_CRITICAL)) {
+                  logger.setLogLevel(Logger.LogLevel.Critical);
+               } else if (m_logLevel.equals(CFG_LOGGING_ERROR)) {
+                  logger.setLogLevel(Logger.LogLevel.Error);
+               } else if (m_logLevel.equals(CFG_LOGGING_WARNING)) {
+                  logger.setLogLevel(Logger.LogLevel.Warning);
+               } else if (m_logLevel.equals(CFG_LOGGING_INFO)) {
+                  logger.setLogLevel(Logger.LogLevel.Info);
+               } else if (m_logLevel.equals(CFG_LOGGING_DEBUG)) {
+                  logger.setLogLevel(Logger.LogLevel.Debug);
+               } else if (m_logLevel.equals(CFG_LOGGING_VERBOSE)) {
+                  logger.setLogLevel(Logger.LogLevel.Verbose);
+               } else {
+                  Logger.warning("unrecognized log level: '" + m_logLevel);
+               }
+            }
+         }
+      }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupSocketBufferSizes(KeyValuePairs kvp) {
+      if (kvp.hasKey(CFG_SERVER_SEND_BUFFER_SIZE)) {
+         int buffSize = getIntValue(kvp, CFG_SERVER_SEND_BUFFER_SIZE);
+         if (buffSize > 0) {
+            m_socketSendBufferSize = buffSize;
+         }
+      }
 
+      if (kvp.hasKey(CFG_SERVER_RECEIVE_BUFFER_SIZE)) {
+         int buffSize = getIntValue(kvp, CFG_SERVER_RECEIVE_BUFFER_SIZE);
+         if (buffSize > 0) {
+            m_socketReceiveBufferSize = buffSize;
+         }
+      }
+   }
+   
+   /**
+    * 
+    * @param kvp
+    */
+   protected void setupServerString(KeyValuePairs kvp) {
+      if (kvp.hasKey(CFG_SERVER_STRING)) {
+         String serverString = kvp.getValue(CFG_SERVER_STRING);
+         if (!serverString.isEmpty()) {
+            m_serverString = serverString;
+            int posDollar = serverString.indexOf("$");
+            if (posDollar > -1) {
+               KeyValuePairs kvpVars = new KeyValuePairs();
+               kvpVars.addPair("$PRODUCT_NAME", SERVER_NAME);
+               kvpVars.addPair("$PRODUCT_VERSION", SERVER_VERSION);
+               kvpVars.addPair("$CFG_SOCKETS", m_sockets);
+               kvpVars.addPair("$CFG_THREADING", m_threading);
+
+               int posDollarOS = serverString.indexOf("$OS_");
+               if (posDollarOS > -1) {
+                  SystemInfo systemInfo = new SystemInfo();
+                  if (systemInfo.retrievedSystemInfo()) {
+                     kvpVars.addPair("$OS_SYSNAME", systemInfo.sysName());
+                     kvpVars.addPair("$OS_NODENAME", systemInfo.nodeName());
+                     kvpVars.addPair("$OS_RELEASE", systemInfo.release());
+                     kvpVars.addPair("$OS_VERSION", systemInfo.version());
+                     kvpVars.addPair("$OS_MACHINE", systemInfo.machine());
+                  } else {
+                     Logger.warning("unable to retrieve system information to populate server string");
+                  }
+               }
+               replaceVariables(kvpVars, m_serverString);
+            }
+
+            Logger.info("setting server string: '" + m_serverString + "'");
+         }
+      }
+   }
+   
+   /**
+    * 
+    * @param dataSource
+    */
+   protected boolean setupHandlers(SectionedConfigDataSource dataSource) {
       if (m_allowBuiltInHandlers) {
          Logger.debug("adding built-in handlers");
          addBuiltInHandlers();
       }
       
-      if (isLoggingDebug) {
+      if (m_isLoggingDebug) {
          Logger.debug("processing handlers");
       }
 
       // read and process "handlers" section
       KeyValuePairs kvpHandlers = new KeyValuePairs();
-      if (configDataSource.hasSection(CFG_SECTION_HANDLERS) &&
-          configDataSource.readSection(CFG_SECTION_HANDLERS, kvpHandlers)) {
+      if (dataSource.hasSection(CFG_SECTION_HANDLERS) &&
+          dataSource.readSection(CFG_SECTION_HANDLERS, kvpHandlers)) {
          List<String> vecKeys = kvpHandlers.getKeys();
 
          for (String path : vecKeys) {
             String moduleSection = kvpHandlers.getValue(path);
 
-            if (isLoggingDebug) {
+            if (m_isLoggingDebug) {
                Logger.debug("path='" + path + "'");
             }
             
@@ -706,9 +817,9 @@ public class HttpServer {
                continue;
             }
 
-            if (configDataSource.hasSection(moduleSection)) {
+            if (dataSource.hasSection(moduleSection)) {
                KeyValuePairs kvpModule = new KeyValuePairs();
-               if (configDataSource.readSection(moduleSection, kvpModule)) {
+               if (dataSource.readSection(moduleSection, kvpModule)) {
                   if (!kvpModule.hasKey(MODULE_DLL_NAME)) {
                      Logger.error(MODULE_DLL_NAME +
                                    " not specified for module " +
@@ -718,7 +829,7 @@ public class HttpServer {
                   String dllName = kvpModule.getValue(MODULE_DLL_NAME);
                   HttpHandler handler = null;
                   
-                  if (isLoggingDebug) {
+                  if (m_isLoggingDebug) {
                      Logger.debug("trying to load dynamic library='" +
                                    dllName +
                                    "'");
@@ -768,13 +879,13 @@ public class HttpServer {
                      }
                   }
 
-                  if (isLoggingDebug) {
+                  if (m_isLoggingDebug) {
                      Logger.debug("initializing the handler");
                   }
 
                   // now initialize the servlet
                   if ((handler != null) && handler.init(path, kvpApp)) {
-                     if (isLoggingDebug) {
+                     if (m_isLoggingDebug) {
                         Logger.debug("initialization succeeded");
 							}
                      
@@ -816,30 +927,37 @@ public class HttpServer {
             return false;
          }
       }
-   } catch (Exception e) {
-      Logger.critical("exception initializing server: " + e.getMessage());
-      return false;
-   } catch (Throwable t) {
-      Logger.critical("unknown exception initializing server");
-      return false;
+      
+      return true;
    }
-
+   
+   /**
+    * 
+    */
+   protected boolean setupServerSocket() {
       if (!m_isUsingKernelEventServer) {
          try {
-            if (isLoggingDebug) {
-               Logger.debug("creating server socket on port=" + port);
+            if (m_isLoggingDebug) {
+               Logger.debug("creating server socket on port=" + m_serverPort);
             }
-      
-            m_serverSocket = new ServerSocket(port);
+            m_serverSocket = new ServerSocket(m_serverPort);
          } catch (Throwable t) {
             String msg = "unable to open server socket port '" +
-                    port + "'";
+                         m_serverPort + "'";
             Logger.critical(msg);
+            t.printStackTrace(System.err);
             return false;
          }
       }
-
-      String concurrencyModel = "";
+   
+      return true;
+   }
+   
+   /**
+    * 
+    */
+   protected void setupConcurrency() {
+      String concurrencyModel;
 
       if (m_isThreaded) {
          boolean isUsingLibDispatch = false;
@@ -847,7 +965,7 @@ public class HttpServer {
          ThreadingFactory.setThreadingFactory(m_threadingFactory);
          m_threadPool =
             m_threadingFactory.createThreadPoolDispatcher(m_threadPoolSize,
-                                                           "thread_pool");
+                                                          "thread_pool");
          
          m_threadPool.start();
 
@@ -864,25 +982,81 @@ public class HttpServer {
          m_threadPoolSize = 1;   // not a pool, we have 1 processing thread
       }
 
-      m_concurrencyModel = concurrencyModel;
+      m_concurrencyModel = concurrencyModel;   
+   }
 
-      String portAsString = "" + port;
+   /**
+    * 
+    */
+   protected void outputStartupMessage() {
+      StringBuilder startupMsg = new StringBuilder(SERVER_NAME);
+      startupMsg.append(" ");
+      startupMsg.append(SERVER_VERSION);
+      startupMsg.append(" listening on port ");
+      startupMsg.append(m_serverPort);
+      startupMsg.append(" (request concurrency: ");
+      startupMsg.append(m_concurrencyModel);
+      startupMsg.append(")");
+      startupMsg.append(" (sockets: ");
+      startupMsg.append(m_sockets);
+      startupMsg.append(")");
+      System.out.println(startupMsg.toString());
+   }
+   
+   /**
+    * Initializes the HTTP server on the specified port by default by reading and
+    * applying configuration values read from configuration data source
+    * @param port the default port (may be overridden by configuration values)
+    * @return boolean indicating whether initialization was successful
+    */
+   protected boolean init(int port) {
+      m_serverPort = port;
+	
+      SectionedConfigDataSource configDataSource = null;
+      boolean haveDataSource = false;
+   
+      try {
+         configDataSource = getConfigDataSource();
+         haveDataSource = true;
+      } catch (Exception e) {
+         Logger.error("exception retrieving config data: " + e.getMessage());
+      } catch (Throwable t) {
+         Logger.error("exception retrieving config data");
+      }
+   
+      if ((null == configDataSource) || !haveDataSource) {
+         Logger.error("unable to retrieve config data");
+         return false;
+      }
 
-      String startupMsg = SERVER_NAME;
-      startupMsg += " ";
-      startupMsg += SERVER_VERSION;
-      startupMsg += " listening on port ";
-      startupMsg += portAsString;
-      startupMsg += " (request concurrency: ";
-      startupMsg += concurrencyModel;
-      startupMsg += ")";
-      startupMsg += " (sockets: ";
-      startupMsg += m_sockets;
-      startupMsg += ")";
+      setupLogFiles(configDataSource);
+      
+      KeyValuePairs kvpServerSettings = new KeyValuePairs();
 
-      System.out.println(startupMsg);
+      // read and process "server" section
+      if (configDataSource.hasSection(CFG_SECTION_SERVER) &&
+          configDataSource.readSection(CFG_SECTION_SERVER,
+                                       kvpServerSettings)) {
+         setupListeningPort(kvpServerSettings);         
+         setupThreading(kvpServerSettings);
+         setupSocketHandling(kvpServerSettings);
+         setupLogLevel(kvpServerSettings);
+         setupSocketBufferSizes(kvpServerSettings);
+         m_allowBuiltInHandlers = hasTrueValue(kvpServerSettings,
+                                               CFG_SERVER_ALLOW_BUILTIN_HANDLERS);
+         setupServerString(kvpServerSettings);
+      } else {
+         Logger.warning("HttpServer init no server section found");
+      }
 
+      if (!setupHandlers(configDataSource) || !setupServerSocket()) {
+         return false;
+      }
+
+      setupConcurrency();
+      m_startupTime = getLocalDateTime();
       m_isFullyInitialized = true;
+      outputStartupMessage();
    
       return true;
    }
@@ -893,11 +1067,53 @@ public class HttpServer {
     */
    protected boolean addBuiltInHandlers() {
       return addPathHandler("/Echo", new EchoHandler()) &&
-          addPathHandler("/GMTDateTime", new GMTDateTimeHandler()) &&
-          addPathHandler("/ServerDateTime", new ServerDateTimeHandler()) &&
-          addPathHandler("/ServerObjectsDebugging", new ServerObjectsDebugging()) &&
-          addPathHandler("/ServerStats", new ServerStatsHandler()) &&
-          addPathHandler("/ServerStatus", new ServerStatusHandler());
+             addPathHandler("/GMTDateTime", new GMTDateTimeHandler()) &&
+             addPathHandler("/ServerDateTime", new ServerDateTimeHandler()) &&
+             addPathHandler("/ServerObjectsDebugging", new ServerObjectsDebugging()) &&
+             addPathHandler("/ServerStats", new ServerStatsHandler()) &&
+             addPathHandler("/ServerStatus", new ServerStatusHandler());
    }
    
+   /**
+    * Main entry point for running HttpServer from command-line
+    * @param args program arguments
+    */
+   public static void main(String[] args) {
+      String configFilePath = "";
+
+      if (args.length > 0) {
+         configFilePath = args[0];
+      } else {
+         String configPath = System.getenv(ENV_VAR_CFG_PATH);
+         if (null != configPath) {
+            configFilePath = configPath;
+            if (!configFilePath.endsWith("/")) {
+               configFilePath += "/";
+            }
+            configFilePath += CFG_FILE_NAME;
+         }
+      }
+      
+      configFilePath = "/Users/paul/misere.ini";
+
+      Logger.setLogger(new StdLogger(Logger.LogLevel.Warning));
+
+      if (configFilePath.isEmpty()) {
+         Logger.error("no config file provided");
+         System.exit(1);
+      }
+
+      try {
+         HttpServer server = new HttpServer(configFilePath);
+         server.run();
+      } catch (Exception e) {
+         Logger.critical("exception running HttpServer: " + e.getMessage());
+         e.printStackTrace(System.err);
+         System.exit(1);
+      } catch (Throwable t) {
+         Logger.critical("exception running HttpServer: " + t.getMessage());
+         t.printStackTrace(System.err);
+         System.exit(1);
+      }
+   }
 }

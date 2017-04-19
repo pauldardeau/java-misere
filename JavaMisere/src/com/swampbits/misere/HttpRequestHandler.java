@@ -93,9 +93,13 @@ public class HttpRequestHandler extends RequestHandler implements Runnable {
          request = new HttpRequest(socket);
       } catch (HttpException he) {
          //TODO: log
+         System.out.println("Exception caught constructing HttpRequest");
+         he.printStackTrace(System.err);
          request = null;
       } catch (Throwable t) {
          //TODO: log
+         System.out.println("Exception caught constructing HttpRequest");
+         t.printStackTrace(System.err);
          request = null;
       }
 
@@ -213,9 +217,11 @@ public class HttpRequestHandler extends RequestHandler implements Runnable {
                response.populateWithHeaders(mapHeaders);
             } catch (Exception e) {
                responseCode = HTTP.HTTP_RESP_SERV_ERR_INTERNAL_ERROR;
+               e.printStackTrace();
                Logger.error("exception handling request: " + e.getMessage());
             } catch (Throwable t) {
                responseCode = HTTP.HTTP_RESP_SERV_ERR_INTERNAL_ERROR;
+               t.printStackTrace();
                Logger.error("unknown exception handling request");
             }
          }

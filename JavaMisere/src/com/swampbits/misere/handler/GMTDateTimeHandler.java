@@ -17,7 +17,6 @@ public class GMTDateTimeHandler extends AbstractHandler {
    @Override
    public void serviceRequest(HttpRequest request,
                               HttpResponse response) {
-      
    }
 
 }

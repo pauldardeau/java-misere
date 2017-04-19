@@ -24,13 +24,13 @@ public class HttpTransaction {
    public static final String COLON  = ":";
    public static final String EOL_NL = "\n";
 
-   private ArrayList<String> m_vecHeaderLines = new ArrayList<>();
-   private ArrayList<String> m_vecRequestLineValues = new ArrayList<>();
+   private final ArrayList<String> m_vecHeaderLines = new ArrayList<>();
+   private final ArrayList<String> m_vecRequestLineValues = new ArrayList<>();
    private String m_header;
    private String m_body;
    private String m_protocol;
    private String m_requestLine;
-   private HashMap<String,String> m_hashHeaders = new HashMap<>();
+   private final HashMap<String,String> m_hashHeaders = new HashMap<>();
    private String m_method;
    private int m_contentLength = 0;
 
@@ -144,7 +144,7 @@ public class HttpTransaction {
          }
       }
    
-      if ((m_method.length() == 0) && !headersParsed) {
+      if ((m_method == null) || !m_method.isEmpty() || !headersParsed) {
          streamSuccess = parseHeaders();
       }
    

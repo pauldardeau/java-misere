@@ -261,20 +261,6 @@ public class HttpServerTest {
    }
 
    /**
-    * Test of platformPointerSizeBits method, of class HttpServer.
-    */
-   @Test
-   public void testPlatformPointerSizeBits() {
-      System.out.println("platformPointerSizeBits");
-      HttpServer instance = null;
-      int expResult = 0;
-      int result = instance.platformPointerSizeBits();
-      assertEquals(expResult, result);
-      // TODO review the generated test code and remove the default call to fail.
-      fail("The test case is a prototype.");
-   }
-
-   /**
     * Test of serviceSocket method, of class HttpServer.
     */
    @Test

@@ -48,7 +48,7 @@ public class EchoHandler extends AbstractHandler {
    
       String requestBody = request.getBody();
    
-      if (!requestBody.isEmpty()) {
+      if ((requestBody != null) && !requestBody.isEmpty()) {
          body.append(requestBody);
       } else {
          body.append("*** no body in request ***<br/>");
