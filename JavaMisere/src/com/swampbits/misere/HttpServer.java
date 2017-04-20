@@ -446,6 +446,7 @@ public class HttpServer {
             }
          }
       } else {
+         System.err.println("error: unable to initialize server");
          return 1;
       }
    }
